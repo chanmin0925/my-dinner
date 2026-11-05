@@ -17,8 +17,9 @@ st.set_page_config(
 )
 
 st.title("🍱 급식 규칙 찾기")
-st.write("184일의 송탄고 중식에서 함께 나온 메뉴와 메뉴 사이의 규칙을 찾아봅니다.")
-
+st.write(
+    "184일의 송탄고 중식에서 함께 나온 메뉴와 메뉴 사이의 규칙을 찾아봅니다."
+)
 
 CSV_URL = (
     "https://raw.githubusercontent.com/it-teacher-go/data-share-/main/"
@@ -40,10 +41,12 @@ def load_data():
     if missing:
         raise ValueError(f"CSV에 필요한 열이 없습니다: {missing}")
 
-    # 메뉴 이름의 괄호와 괄호 안 내용 제거
     def clean_menu(menu):
         menu = str(menu)
+
+        # 괄호와 괄호 안의 내용 제거
         menu = re.sub(r"\([^)]*\)", "", menu)
+
         return menu.strip()
 
     baskets = []
@@ -54,7 +57,7 @@ def load_data():
             for menu in str(menu_text).split("|")
         ]
 
-        # 빈 메뉴 제거 및 하루 안에서 중복 메뉴 제거
+        # 빈 메뉴 제거 및 하루 안의 중복 제거
         menus = sorted(set(menu for menu in menus if menu))
 
         baskets.append(menus)
@@ -79,10 +82,10 @@ menu_counts = {}
 pair_counts = {}
 
 for basket in baskets:
+
     for menu in basket:
         menu_counts[menu] = menu_counts.get(menu, 0) + 1
 
-    # 하루에 함께 나온 모든 메뉴 쌍
     for menu_a, menu_b in combinations(basket, 2):
         pair = (menu_a, menu_b)
         pair_counts[pair] = pair_counts.get(pair, 0) + 1
@@ -98,7 +101,7 @@ for (menu_a, menu_b), count in pair_counts.items():
 
     support = count / total_days
 
-    # A -> B
+    # A → B
     confidence_ab = count / menu_counts[menu_a]
     lift_ab = confidence_ab / (menu_counts[menu_b] / total_days)
 
@@ -111,7 +114,7 @@ for (menu_a, menu_b), count in pair_counts.items():
         "향상도": lift_ab,
     })
 
-    # B -> A
+    # B → A
     confidence_ba = count / menu_counts[menu_b]
     lift_ba = confidence_ba / (menu_counts[menu_a] / total_days)
 
@@ -149,15 +152,16 @@ st.divider()
 
 
 # --------------------------------------------------
-# 검색 및 정렬
+# 메뉴 좁혀 보기 및 정렬
 # --------------------------------------------------
 
 left, right = st.columns([2, 1])
 
 with left:
     selected_menu = st.selectbox(
-        "메뉴를 선택하면 해당 메뉴가 포함된 규칙만 볼 수 있습니다.",
+        "규칙 좁혀 보기",
         options=["전체 메뉴"] + sorted(menu_counts.keys()),
+        key="rule_menu_select",
     )
 
 with right:
@@ -168,9 +172,18 @@ with right:
 
 
 # --------------------------------------------------
-# 선택한 메뉴에 해당하는 규칙만 남기기
+# 최소 동시 일수 슬라이더
 # --------------------------------------------------
 
+min_count = st.slider(
+    "최소 동시 일수",
+    min_value=1,
+    max_value=10,
+    value=1,
+    step=1,
+)
+
+# 선택한 메뉴에 해당하는 규칙만 남기기
 filtered_df = rules_df.copy()
 
 if selected_menu != "전체 메뉴":
@@ -179,11 +192,12 @@ if selected_menu != "전체 메뉴":
         | (filtered_df["결과"] == selected_menu)
     ]
 
+# 최소 동시 일수 적용
+filtered_df = filtered_df[
+    filtered_df["동시"] >= min_count
+]
 
-# --------------------------------------------------
 # 정렬
-# --------------------------------------------------
-
 sort_columns = {
     "향상도 순": "향상도",
     "신뢰도 순": "신뢰도",
@@ -204,13 +218,21 @@ filtered_df = filtered_df.sort_values(
 
 st.subheader("메뉴 연관 규칙")
 
+st.write(f"현재 조건에 맞는 규칙: **{len(filtered_df)}개**")
+
 if filtered_df.empty:
-    st.info("선택한 메뉴에 해당하는 규칙이 없습니다.")
+    st.info("조건에 맞는 규칙이 없습니다.")
 else:
     display_df = filtered_df.copy()
 
-    display_df["지지도"] = (display_df["지지도"] * 100).round(2).astype(str) + "%"
-    display_df["신뢰도"] = (display_df["신뢰도"] * 100).round(2).astype(str) + "%"
+    display_df["지지도"] = (
+        (display_df["지지도"] * 100).round(2).astype(str) + "%"
+    )
+
+    display_df["신뢰도"] = (
+        (display_df["신뢰도"] * 100).round(2).astype(str) + "%"
+    )
+
     display_df["향상도"] = display_df["향상도"].round(3)
 
     st.dataframe(
@@ -243,10 +265,9 @@ else:
         ascending=False,
     ).head(10).copy()
 
-    # 그래프에서 조건과 결과를 함께 표시
     top10["규칙"] = top10["조건"] + " → " + top10["결과"]
 
-    # 가로 막대그래프는 가장 큰 값이 위에 오도록 역순 정렬
+    # 가장 큰 값이 위에 오도록 역순 정렬
     top10 = top10.sort_values("향상도", ascending=True)
 
     fig = px.bar(
@@ -284,3 +305,85 @@ else:
     )
 
     st.plotly_chart(fig, width="stretch")
+
+
+# --------------------------------------------------
+# 함께 나온 적 없는 짝
+# --------------------------------------------------
+
+st.divider()
+st.subheader("함께 나온 적 없는 짝")
+
+st.write(
+    "선택한 메뉴와 같은 날 한 번도 함께 나오지 않았지만, "
+    "각각 10일 이상 나온 메뉴를 찾아봅니다."
+)
+
+selected_menu_for_absence = st.selectbox(
+    "함께 나온 적 없는 짝을 찾을 메뉴",
+    options=sorted(menu_counts.keys()),
+    key="absence_menu_select",
+)
+
+# 선택한 메뉴와 함께 나온 적이 있는 메뉴
+appeared_with = set()
+
+for (menu_a, menu_b), count in pair_counts.items():
+    if menu_a == selected_menu_for_absence:
+        appeared_with.add(menu_b)
+
+    elif menu_b == selected_menu_for_absence:
+        appeared_with.add(menu_a)
+
+
+# 함께 나온 적이 없고, 혼자서는 10일 이상 나온 메뉴
+never_together = []
+
+for menu, days in menu_counts.items():
+
+    if menu == selected_menu_for_absence:
+        continue
+
+    if menu in appeared_with:
+        continue
+
+    if days < 10:
+        continue
+
+    never_together.append({
+        "메뉴": menu,
+        "나온 날": days,
+    })
+
+
+never_together_df = pd.DataFrame(never_together)
+
+# 나온 날이 많은 순으로 정렬
+if not never_together_df.empty:
+    never_together_df = never_together_df.sort_values(
+        by="나온 날",
+        ascending=False,
+    ).reset_index(drop=True)
+
+selected_menu_days = menu_counts[selected_menu_for_absence]
+
+st.write(
+    f"**{selected_menu_for_absence}**: "
+    f"{selected_menu_days}일 출현"
+)
+
+if never_together_df.empty:
+    st.info(
+        "선택한 메뉴와 함께 나온 적이 없고, "
+        "10일 이상 나온 메뉴가 없습니다."
+    )
+else:
+    st.write(
+        f"함께 나온 적 없는 메뉴: **{len(never_together_df)}개**"
+    )
+
+    st.dataframe(
+        never_together_df,
+        hide_index=True,
+        width="stretch",
+    )
